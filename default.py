@@ -519,8 +519,6 @@ def listEpisodes(seriesID, season):
     
     season_number = 0
     for item in match:
-        print item
-        print item[1]
         if item[1] is '1':
             season_number += 1        
         if int(season_number) == int(season):
@@ -599,20 +597,13 @@ def getSeriesInfo(seriesID):
     cacheFile = os.path.join(cacheFolder, seriesID+"_episodes.cache")
     content = ""
     if os.path.exists(cacheFile) and (time.time()-os.path.getmtime(cacheFile) < 60*5):
-        print 'Cacheado!'
         fh = xbmcvfs.File(cacheFile, 'r')
         content = fh.read()
         fh.close()
     if not content:
-        print 'No cacheado'
         #url = "http://api-global.netflix.com/desktop/odp/episodes?languages="+language+"&forceEpisodes=true&routing=redirect&video="+seriesID+"&country="+country
-        
         url = "http://www.netflix.com/title/"+seriesID
-        print 'URL datos: %s' % url
         content = load(url)
-        
-        print 'CONTENT!:\n %s' % content
-        
         fh = xbmcvfs.File(cacheFile, 'w')
         fh.write(content)
         fh.close()
