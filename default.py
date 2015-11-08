@@ -115,6 +115,8 @@ if len(country)==0 and len(language.split("-"))>1:
 
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.poolmanager import PoolManager
+#from urllib3.poolmanager import PoolManager
+
 import ssl
 
 class SSLAdapter(HTTPAdapter):
@@ -386,13 +388,15 @@ def listVideo(videoID, title, thumbUrl, tvshowIsEpisode, hideMovies, type):
     if match:
         mpaa = match[0].strip()
     match = re.compile('<span class="duration.*?>(.+?)<', re.DOTALL).findall(videoDetails)
-    duration = ""
+    #duration = "" # https://github.com/Rechi/plugin.video.netflixbmc/commit/111d7aef5ff78125bff56f337f2b86fe8e18672f
+    duration = None
     if match:
         duration = match[0].lower()
     if duration.split(' ')[-1] in ["minutes", "minutos", "minuter", "minutter", "minuuttia", "minuten"]:
         videoType = "movie"
         videoTypeTemp = videoType
-        duration = duration.split(" ")[0]
+        #duration = duration.split(" ")[0]
+        duration = int(duration.split(" ")[0])
     else:
         videoTypeTemp = "tv"
         if tvshowIsEpisode:
@@ -400,7 +404,7 @@ def listVideo(videoID, title, thumbUrl, tvshowIsEpisode, hideMovies, type):
             year = ""
         else:
             videoType = "tvshow"
-        duration = ""
+        duration = None
     if useTMDb:
         yearTemp = year
         titleTemp = title
@@ -454,11 +458,17 @@ def listGenres(type, videoType):
     xbmcplugin.addSortMethod(pluginhandle, xbmcplugin.SORT_METHOD_LABEL)
     if isKidsProfile:
         type = 'KidsAltGenre'
-    content = load(urlMain+"/WiHome")
-    match = re.compile('/'+type+'\\?agid=(.+?)">(.+?)<', re.DOTALL).findall(content)
+    content = load(urlMain+"/browse")
+    
+    
+    ####match = re.compile('/'+type+'\\?agid=(.+?)">(.+?)<', re.DOTALL).findall(content)
+
+    match = re.compile('/browse/genre/(.+?)">(.+?)</li>').findall(content)
+
     # A number of categories (especially in the Kids genres) have duplicate entires and a lot of whitespice; create a stripped unique set
     unique_match = set((k[0].strip(), k[1].strip()) for k in match)
     for genreID, title in unique_match:
+        title = title.decode("utf-8")
         if not genreID=="83":
             if isKidsProfile:
                 addDir(title, urlMain+"/"+type+"?agid="+genreID+"&pn=1&np=1&actionMethod=json", 'listVideos', "", videoType)
@@ -469,10 +479,16 @@ def listGenres(type, videoType):
 
 def listTvGenres(videoType):
     xbmcplugin.addSortMethod(pluginhandle, xbmcplugin.SORT_METHOD_LABEL)
-    content = load(urlMain+"/WiGenre?agid=83")
+    
+    '''
+    content = load(urlMain+"/WiGenre?agid=83")    
     content = content[content.find('id="subGenres_menu"'):]
     content = content[:content.find('</div>')]
     match = re.compile('<li ><a href=".+?/WiGenre\\?agid=(.+?)&.+?"><span>(.+?)<', re.DOTALL).findall(content)
+    '''
+    
+    match=[('1372','Ciencia ficción y fantásticas de TV'),('6721','Series de anime'),('10375','Comedias TV'),('10673','TV de acción y aventuras'),('11714','Dramas TV'),('27346','TV infantil'),('83059','Terror para TV')]
+    
     for genreID, title in match:
         addDir(title, urlMain+"/WiGenre?agid="+genreID, 'listVideos', "", videoType)
     xbmcplugin.endOfDirectory(pluginhandle)
@@ -480,40 +496,44 @@ def listTvGenres(videoType):
 
 def listSeasons(seriesName, seriesID, thumb):
     content = getSeriesInfo(seriesID)
-    content = json.loads(content)
-    seasons = []
-    for item in content["episodes"]:
-        if item[0]["season"] not in seasons:
-            seasons.append(item[0]["season"])
+    try:
+        content = json.loads(content)
+        seasons = []
+    except:
+        match = re.compile('<h2 class="row-name">Temporada (.+?)</h2>', re.DOTALL).findall(content)
+        seasons = []
+        seasons = match
+
     for season in seasons:
-        addSeasonDir("Season "+str(season), str(season), 'listEpisodes', thumb, seriesName, seriesID)
+        addSeasonDir("Temporada "+str(season), str(season), 'listEpisodes', thumb, seriesName, seriesID)
     xbmcplugin.endOfDirectory(pluginhandle)
 
 
 def listEpisodes(seriesID, season):
     xbmcplugin.setContent(pluginhandle, "episodes")
-    content = getSeriesInfo(seriesID)
-    content = json.loads(content)
-    for test in content["episodes"]:
-        for item in test:
-            episodeSeason = str(item["season"])
-            if episodeSeason == season:
-                episodeID = str(item["episodeId"])
-                episodeNr = str(item["episode"])
-                episodeTitle = (episodeNr + ".  " + item["title"]).encode('utf-8')
-                duration = item["runtime"]
-                bookmarkPosition = item["bookmarkPosition"]
-                playcount=0
-                if (duration>0 and float(bookmarkPosition)/float(duration))>=0.9:
-                    playcount=1
-                desc = item["synopsis"].encode('utf-8')
-                try:
-                    thumb = item["stills"][0]["url"]
-                except:
-                    thumb = ""
-                addEpisodeDir(episodeTitle, episodeID, 'playVideoMain', thumb, desc, str(duration), season, episodeNr, seriesID, playcount)
+    s = getSeriesInfo(seriesID)
+    
+    content = s.replace('\n','').replace('            ',' ').replace('   ','').replace('= ','=').replace('=   ','=')
+
+    match = re.compile('<a href="https://www.netflix.com/watch/(.+?)" class="watch-episode watch-episode-(.+?)" data-index="(.+?)" title="(.+?)"><div class="episode-boxart"><img src="(.+?)" class="boxart"><img src="http://cdn-0.nflximg.com/en_us/buttons/play-button-114.png" class="watch-icon"><p class="episode-number">(.+?)</p></div><p class="episode-metadata"><span class="episode-name">(.+?)<span class="episode-duration">(.+?) min.</span></span><span class="episode-description">(.+?)</span></p></a>', re.DOTALL).findall(content)
+    
+    season_number = 0
+    for item in match:
+        print item
+        print item[1]
+        if item[1] is '1':
+            season_number += 1        
+        if int(season_number) == int(season):
+            episodeID = str(item[0])
+            episodeNr = str(item[1])
+            episodeTitle = (episodeNr + ".  " + item[3]).decode('utf-8')
+            duration = item[7]
+            playcount=0
+            desc = item[8].decode('utf-8')
+            thumb = item[4]
+            addEpisodeDir(episodeTitle, episodeID, 'playVideoMain', thumb, desc, str(duration), season, episodeNr, seriesID, playcount)    
     if forceView:
-        xbmc.executebuiltin('Container.SetViewMode('+viewIdEpisodes+')')
+        xbmc.executebuiltin('Container.SetViewMode('+viewIdEpisodes+')')     
     xbmcplugin.endOfDirectory(pluginhandle)
 
 
@@ -579,12 +599,20 @@ def getSeriesInfo(seriesID):
     cacheFile = os.path.join(cacheFolder, seriesID+"_episodes.cache")
     content = ""
     if os.path.exists(cacheFile) and (time.time()-os.path.getmtime(cacheFile) < 60*5):
+        print 'Cacheado!'
         fh = xbmcvfs.File(cacheFile, 'r')
         content = fh.read()
         fh.close()
     if not content:
-        url = "http://api-global.netflix.com/desktop/odp/episodes?languages="+language+"&forceEpisodes=true&routing=redirect&video="+seriesID+"&country="+country
+        print 'No cacheado'
+        #url = "http://api-global.netflix.com/desktop/odp/episodes?languages="+language+"&forceEpisodes=true&routing=redirect&video="+seriesID+"&country="+country
+        
+        url = "http://www.netflix.com/title/"+seriesID
+        print 'URL datos: %s' % url
         content = load(url)
+        
+        print 'CONTENT!:\n %s' % content
+        
         fh = xbmcvfs.File(cacheFile, 'w')
         fh.write(content)
         fh.close()
@@ -1046,9 +1074,11 @@ def addDir(name, url, mode, iconimage, type="", contextEnable=True):
     return ok
 
 
-def addVideoDir(name, url, mode, iconimage, videoType="", desc="", duration="", year="", mpaa="", director="", genre="", rating=""):
+def addVideoDir(name, url, mode, iconimage, videoType="", desc="", duration=None, year="", mpaa="", director="", genre="", rating=""):
 ##    if duration:
 ##        duration = str(int(duration) * 60)
+    if duration:
+        duration *= 60
     name = name.encode("utf-8")
     filename = clean_filename(url)+".jpg"
     coverFile = os.path.join(cacheFolderCoversTMDB, filename)
@@ -1083,9 +1113,11 @@ def addVideoDir(name, url, mode, iconimage, videoType="", desc="", duration="", 
     return ok
 
 
-def addVideoDirR(name, url, mode, iconimage, videoType="", desc="", duration="", year="", mpaa="", director="", genre="", rating=""):
+def addVideoDirR(name, url, mode, iconimage, videoType="", desc="", duration=None, year="", mpaa="", director="", genre="", rating=""):
 ##    if duration:
 ##        duration = str(int(duration) * 60)
+    if duration:
+        duration *= 60
     name = name.encode("utf-8")
     filename = clean_filename(url)+".jpg"
     coverFile = os.path.join(cacheFolderCoversTMDB, filename)
